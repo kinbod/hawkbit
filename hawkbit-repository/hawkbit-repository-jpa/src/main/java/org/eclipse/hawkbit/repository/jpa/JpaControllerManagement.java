@@ -33,6 +33,7 @@ import org.eclipse.hawkbit.repository.exception.EntityNotFoundException;
 import org.eclipse.hawkbit.repository.exception.ToManyAttributeEntriesException;
 import org.eclipse.hawkbit.repository.exception.TooManyStatusEntriesException;
 import org.eclipse.hawkbit.repository.jpa.builder.JpaActionStatusCreate;
+import org.eclipse.hawkbit.repository.jpa.configuration.Constants;
 import org.eclipse.hawkbit.repository.jpa.executor.AfterTransactionCommitExecutor;
 import org.eclipse.hawkbit.repository.jpa.model.JpaAction;
 import org.eclipse.hawkbit.repository.jpa.model.JpaActionStatus;
@@ -56,9 +57,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Sort.Direction;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -126,6 +132,8 @@ public class JpaControllerManagement implements ControllerManagement {
 
     @Override
     @Transactional
+    @Retryable(include = {
+            ConcurrencyFailureException.class }, maxAttempts = Constants.TX_RT_MAX, backoff = @Backoff(delay = Constants.TX_RT_DELAY))
     public Target updateLastTargetQuery(final String controllerId, final URI address) {
         final JpaTarget target = (JpaTarget) targetRepository.findByControllerId(controllerId)
                 .orElseThrow(() -> new EntityNotFoundException(Target.class, controllerId));
@@ -195,6 +203,8 @@ public class JpaControllerManagement implements ControllerManagement {
 
     @Override
     @Transactional
+    @Retryable(include = {
+            ConcurrencyFailureException.class }, maxAttempts = Constants.TX_RT_MAX, backoff = @Backoff(delay = Constants.TX_RT_DELAY))
     public Target findOrRegisterTargetIfItDoesNotexist(final String controllerId, final URI address) {
         final Specification<JpaTarget> spec = (targetRoot, query, cb) -> cb
                 .equal(targetRoot.get(JpaTarget_.controllerId), controllerId);
@@ -240,6 +250,8 @@ public class JpaControllerManagement implements ControllerManagement {
 
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
+    @Retryable(include = {
+            ConcurrencyFailureException.class }, maxAttempts = Constants.TX_RT_MAX, backoff = @Backoff(delay = Constants.TX_RT_DELAY))
     public Action addCancelActionStatus(final ActionStatusCreate c) {
         final JpaActionStatusCreate create = (JpaActionStatusCreate) c;
 
@@ -283,6 +295,8 @@ public class JpaControllerManagement implements ControllerManagement {
 
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
+    @Retryable(include = {
+            ConcurrencyFailureException.class }, maxAttempts = Constants.TX_RT_MAX, backoff = @Backoff(delay = Constants.TX_RT_DELAY))
     public Action addUpdateActionStatus(final ActionStatusCreate c) {
         final JpaActionStatusCreate create = (JpaActionStatusCreate) c;
         final JpaAction action = getActionAndThrowExceptionIfNotFound(create.getActionId());
@@ -381,6 +395,8 @@ public class JpaControllerManagement implements ControllerManagement {
 
     @Override
     @Transactional
+    @Retryable(include = {
+            ConcurrencyFailureException.class }, maxAttempts = Constants.TX_RT_MAX, backoff = @Backoff(delay = Constants.TX_RT_DELAY))
     public Target updateControllerAttributes(final String controllerId, final Map<String, String> data) {
         final JpaTarget target = (JpaTarget) targetRepository.findByControllerId(controllerId)
                 .orElseThrow(() -> new EntityNotFoundException(Target.class, controllerId));
@@ -401,6 +417,8 @@ public class JpaControllerManagement implements ControllerManagement {
 
     @Override
     @Transactional
+    @Retryable(include = {
+            ConcurrencyFailureException.class }, maxAttempts = Constants.TX_RT_MAX, backoff = @Backoff(delay = Constants.TX_RT_DELAY))
     public Action registerRetrieved(final Long actionId, final String message) {
         return handleRegisterRetrieved(actionId, message);
     }
@@ -460,6 +478,8 @@ public class JpaControllerManagement implements ControllerManagement {
 
     @Override
     @Transactional
+    @Retryable(include = {
+            ConcurrencyFailureException.class }, maxAttempts = Constants.TX_RT_MAX, backoff = @Backoff(delay = Constants.TX_RT_DELAY))
     public ActionStatus addInformationalActionStatus(final ActionStatusCreate c) {
         final JpaActionStatusCreate create = (JpaActionStatusCreate) c;
         final JpaAction action = getActionAndThrowExceptionIfNotFound(create.getActionId());
@@ -491,6 +511,15 @@ public class JpaControllerManagement implements ControllerManagement {
     @Override
     public Optional<Target> findByTargetId(final Long targetId) {
         return Optional.ofNullable(targetRepository.findOne(targetId));
+    }
+
+    @Override
+    public Page<ActionStatus> findActionStatusByAction(final Pageable pageReq, final Long actionId) {
+        if (!actionRepository.exists(actionId)) {
+            throw new EntityNotFoundException(Action.class, actionId);
+        }
+
+        return actionStatusRepository.findByActionId(pageReq, actionId);
     }
 
 }
