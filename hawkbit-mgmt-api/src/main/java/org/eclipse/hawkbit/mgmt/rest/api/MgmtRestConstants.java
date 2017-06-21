@@ -46,7 +46,7 @@ public final class MgmtRestConstants {
 
     public static final String DOWNLOAD_ID_V1_REQUEST_MAPPING_BASE = "/api/" + API_VERSION + "/downloadserver/";
 
-    public static final String DOWNLOAD_ID_V1_REQUEST_MAPPING = "downloadId/{downloadId}";
+    public static final String DOWNLOAD_ID_V1_REQUEST_MAPPING = "/downloadId/{tenant}/{downloadId}";
 
     /**
      * The base URL mapping for the spring acuator management context path.
@@ -207,6 +207,11 @@ public final class MgmtRestConstants {
      * The target URL mapping, href link for artifact download.
      */
     public static final String SOFTWAREMODULE_V1_ARTIFACT = "artifacts";
+
+    /**
+     * The target URL mapping, href link for software module access.
+     */
+    public static final String DISTRIBUTIONSET_V1_MODULE = "modules";
 
     /**
      * The target URL mapping, href link for type information.
