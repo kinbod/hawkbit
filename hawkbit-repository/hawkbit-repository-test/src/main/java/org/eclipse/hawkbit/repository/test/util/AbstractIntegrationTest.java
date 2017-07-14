@@ -10,16 +10,17 @@ package org.eclipse.hawkbit.repository.test.util;
 
 import static org.eclipse.hawkbit.im.authentication.SpPermission.SpringEvalExpressions.CONTROLLER_ROLE;
 import static org.eclipse.hawkbit.im.authentication.SpPermission.SpringEvalExpressions.SYSTEM_ROLE;
-import static org.junit.rules.RuleChain.outerRule;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.eclipse.hawkbit.artifact.repository.ArtifactFilesystemProperties;
 import org.eclipse.hawkbit.artifact.repository.ArtifactRepository;
 import org.eclipse.hawkbit.cache.TenantAwareCacheManager;
@@ -53,7 +54,6 @@ import org.eclipse.hawkbit.repository.model.Target;
 import org.eclipse.hawkbit.repository.model.TargetWithActionType;
 import org.eclipse.hawkbit.repository.test.TestConfiguration;
 import org.eclipse.hawkbit.repository.test.matcher.EventVerifier;
-import org.eclipse.hawkbit.security.ExcludePathAwareShallowETagFilter;
 import org.eclipse.hawkbit.security.SystemSecurityContext;
 import org.eclipse.hawkbit.tenancy.TenantAware;
 import org.junit.After;
@@ -61,7 +61,6 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Rule;
-import org.junit.rules.RuleChain;
 import org.junit.rules.TestWatcher;
 import org.junit.runner.Description;
 import org.junit.runner.RunWith;
@@ -71,8 +70,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.SpringApplicationConfiguration;
 import org.springframework.cloud.bus.ServiceMatcher;
 import org.springframework.cloud.stream.test.binder.TestSupportBinderAutoConfiguration;
-import org.springframework.context.EnvironmentAware;
-import org.springframework.core.env.Environment;
 import org.springframework.data.auditing.AuditingHandler;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -82,15 +79,11 @@ import org.springframework.hateoas.MediaTypes;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.annotation.DirtiesContext.ClassMode;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.TestExecutionListeners.MergeMode;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
-import org.springframework.test.context.web.WebAppConfiguration;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.DefaultMockMvcBuilder;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
 
 @RunWith(SpringJUnit4ClassRunner.class)
-@WebAppConfiguration
 @ActiveProfiles({ "test" })
 @WithUser(principal = "bumlux", allSpPermissions = true, authorities = { CONTROLLER_ROLE, SYSTEM_ROLE })
 @SpringApplicationConfiguration(classes = { TestConfiguration.class, TestSupportBinderAutoConfiguration.class })
@@ -99,10 +92,17 @@ import org.springframework.web.context.WebApplicationContext;
 // refreshed we e.g. get two instances of CacheManager which leads to very
 // strange test failures.
 @DirtiesContext(classMode = ClassMode.AFTER_CLASS)
-public abstract class AbstractIntegrationTest implements EnvironmentAware {
+// Cleaning repository will fire "delete" events. We won't count them to the
+// test execution. So, the order execution between EventVerifier and Cleanup is
+// important!
+@TestExecutionListeners(inheritListeners = true, listeners = { EventVerifier.class, CleanupTestExecutionListener.class,
+        MySqlTestDatabase.class }, mergeMode = MergeMode.MERGE_WITH_DEFAULTS)
+public abstract class AbstractIntegrationTest {
     private static final Logger LOG = LoggerFactory.getLogger(AbstractIntegrationTest.class);
 
     protected static final Pageable PAGE = new PageRequest(0, 400, new Sort(Direction.ASC, "id"));
+
+    protected static final URI LOCALHOST = URI.create("http://127.0.0.1");
 
     /**
      * Constant for MediaType HAL with encoding UTF-8. Necessary since Spring
@@ -152,9 +152,6 @@ public abstract class AbstractIntegrationTest implements EnvironmentAware {
     protected ArtifactManagement artifactManagement;
 
     @Autowired
-    protected WebApplicationContext context;
-
-    @Autowired
     protected AuditingHandler auditingHandler;
 
     @Autowired
@@ -187,8 +184,6 @@ public abstract class AbstractIntegrationTest implements EnvironmentAware {
     @Autowired
     protected QuotaManagement quotaManagement;
 
-    protected MockMvc mvc;
-
     protected SoftwareModuleType osType;
     protected SoftwareModuleType appType;
     protected SoftwareModuleType runtimeType;
@@ -200,11 +195,6 @@ public abstract class AbstractIntegrationTest implements EnvironmentAware {
 
     @Autowired
     protected ServiceMatcher serviceMatcher;
-
-    @Rule
-    // Cleaning repository will fire "delete" events. We won't count them to the
-    // test execution. So there is order between both rules:
-    public RuleChain ruleChain = outerRule(new CleanRepositoryRule()).around(new EventVerifier());
 
     @Rule
     public final WithSpringAuthorityRule securityRule = new WithSpringAuthorityRule();
@@ -227,13 +217,6 @@ public abstract class AbstractIntegrationTest implements EnvironmentAware {
             LOG.error("Test {} failed with {}.", description.getMethodName(), e);
         }
     };
-
-    protected Environment environment = null;
-
-    @Override
-    public void setEnvironment(final Environment environment) {
-        this.environment = environment;
-    }
 
     protected DistributionSetAssignmentResult assignDistributionSet(final Long dsID, final String controllerId) {
         return deploymentManagement.assignDistributionSet(dsID, Arrays.asList(
@@ -280,7 +263,6 @@ public abstract class AbstractIntegrationTest implements EnvironmentAware {
 
     @Before
     public void before() throws Exception {
-        mvc = createMvcWebAppContext().build();
         final String description = "Updated description.";
 
         osType = securityRule
@@ -301,41 +283,32 @@ public abstract class AbstractIntegrationTest implements EnvironmentAware {
         standardDsType = securityRule.runAsPrivileged(() -> testdataFactory.findOrCreateDefaultTestDsType());
     }
 
+    private static String artifactDirectory = "./artifactrepo/" + RandomStringUtils.randomAlphanumeric(20);
+
     @After
     public void cleanUp() {
-        try {
-            FileUtils.deleteDirectory(new File(artifactFilesystemProperties.getPath()));
-        } catch (final IOException | IllegalArgumentException e) {
-            LOG.warn("Cannot cleanup file-directory", e);
+        if (new File(artifactDirectory).exists()) {
+            try {
+                FileUtils.cleanDirectory(new File(artifactDirectory));
+            } catch (final IOException | IllegalArgumentException e) {
+                LOG.warn("Cannot cleanup file-directory", e);
+            }
         }
     }
-
-    protected DefaultMockMvcBuilder createMvcWebAppContext() {
-        return MockMvcBuilders.webAppContextSetup(context)
-                .addFilter(new ExcludePathAwareShallowETagFilter(
-                        "/rest/v1/softwaremodules/{smId}/artifacts/{artId}/download",
-                        "/{tenant}/controller/v1/{controllerId}/softwaremodules/{softwareModuleId}/artifacts/**",
-                        "/api/v1/downloadserver/**"));
-    }
-
-    private static CIMySqlTestDatabase tesdatabase;
 
     @BeforeClass
     public static void beforeClass() {
-        createTestdatabaseAndStart();
-    }
-
-    private static synchronized void createTestdatabaseAndStart() {
-        if ("MYSQL".equals(System.getProperty("spring.jpa.database"))) {
-            tesdatabase = new CIMySqlTestDatabase();
-            tesdatabase.before();
-        }
+        System.setProperty("org.eclipse.hawkbit.repository.file.path", artifactDirectory);
     }
 
     @AfterClass
     public static void afterClass() {
-        if (tesdatabase != null) {
-            tesdatabase.after();
+        if (new File(artifactDirectory).exists()) {
+            try {
+                FileUtils.deleteDirectory(new File(artifactDirectory));
+            } catch (final IOException | IllegalArgumentException e) {
+                LOG.warn("Cannot delete file-directory", e);
+            }
         }
     }
 }
