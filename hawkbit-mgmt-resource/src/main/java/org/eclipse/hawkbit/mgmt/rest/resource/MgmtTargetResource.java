@@ -13,12 +13,15 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import javax.validation.ValidationException;
+
 import org.eclipse.hawkbit.mgmt.json.model.PagedList;
 import org.eclipse.hawkbit.mgmt.json.model.action.MgmtAction;
 import org.eclipse.hawkbit.mgmt.json.model.action.MgmtActionRequestBodyPut;
 import org.eclipse.hawkbit.mgmt.json.model.action.MgmtActionStatus;
 import org.eclipse.hawkbit.mgmt.json.model.distributionset.MgmtActionType;
 import org.eclipse.hawkbit.mgmt.json.model.distributionset.MgmtDistributionSet;
+import org.eclipse.hawkbit.mgmt.json.model.distributionset.MgmtTargetAssignmentResponseBody;
 import org.eclipse.hawkbit.mgmt.json.model.target.MgmtDistributionSetAssigment;
 import org.eclipse.hawkbit.mgmt.json.model.target.MgmtTarget;
 import org.eclipse.hawkbit.mgmt.json.model.target.MgmtTargetAttributes;
@@ -29,7 +32,6 @@ import org.eclipse.hawkbit.repository.DeploymentManagement;
 import org.eclipse.hawkbit.repository.EntityFactory;
 import org.eclipse.hawkbit.repository.OffsetBasedPageRequest;
 import org.eclipse.hawkbit.repository.TargetManagement;
-import org.eclipse.hawkbit.repository.exception.ConstraintViolationException;
 import org.eclipse.hawkbit.repository.exception.EntityNotFoundException;
 import org.eclipse.hawkbit.repository.model.Action;
 import org.eclipse.hawkbit.repository.model.Action.ActionType;
@@ -252,16 +254,21 @@ public class MgmtTargetResource implements MgmtTargetRestApi {
     }
 
     @Override
-    public ResponseEntity<Void> postAssignedDistributionSet(@PathVariable("controllerId") final String controllerId,
-            @RequestBody final MgmtDistributionSetAssigment dsId) {
+    public ResponseEntity<MgmtTargetAssignmentResponseBody> postAssignedDistributionSet(
+            @PathVariable("controllerId") final String controllerId,
+            @RequestBody final MgmtDistributionSetAssigment dsId,
+            @RequestParam(value = "offline", required = false) final boolean offline) {
+
+        if (offline) {
+            return ResponseEntity.ok(MgmtDistributionSetMapper.toResponse(
+                    deploymentManagement.offlineAssignedDistributionSet(dsId.getId(), Arrays.asList(controllerId))));
+        }
 
         findTargetWithExceptionIfNotFound(controllerId);
         final ActionType type = (dsId.getType() != null) ? MgmtRestModelMapper.convertActionType(dsId.getType())
                 : ActionType.FORCED;
-        this.deploymentManagement.assignDistributionSet(dsId.getId(), type, dsId.getForcetime(),
-                Arrays.asList(controllerId));
-
-        return ResponseEntity.ok().build();
+        return ResponseEntity.ok(MgmtDistributionSetMapper.toResponse(deploymentManagement
+                .assignDistributionSet(dsId.getId(), type, dsId.getForcetime(), Arrays.asList(controllerId))));
     }
 
     @Override
@@ -293,7 +300,7 @@ public class MgmtTargetResource implements MgmtTargetRestApi {
         }
 
         if (!MgmtActionType.FORCED.equals(actionUpdate.getForceType())) {
-            throw new ConstraintViolationException("Resource supports only switch to FORCED.");
+            throw new ValidationException("Resource supports only switch to FORCED.");
         }
 
         action = deploymentManagement.forceTargetAction(actionId);

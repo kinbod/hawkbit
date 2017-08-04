@@ -11,13 +11,13 @@ package org.eclipse.hawkbit.repository;
 import java.util.List;
 import java.util.Optional;
 
+import javax.validation.ConstraintViolationException;
 import javax.validation.constraints.NotNull;
 
 import org.eclipse.hawkbit.im.authentication.SpPermission.SpringEvalExpressions;
 import org.eclipse.hawkbit.repository.builder.RolloutCreate;
 import org.eclipse.hawkbit.repository.builder.RolloutGroupCreate;
 import org.eclipse.hawkbit.repository.builder.RolloutUpdate;
-import org.eclipse.hawkbit.repository.exception.ConstraintViolationException;
 import org.eclipse.hawkbit.repository.exception.EntityNotFoundException;
 import org.eclipse.hawkbit.repository.exception.EntityReadOnlyException;
 import org.eclipse.hawkbit.repository.exception.RSQLParameterSyntaxException;
@@ -121,7 +121,7 @@ public interface RolloutManagement {
      * @throws EntityNotFoundException
      *             if given {@link DistributionSet} does not exist
      * @throws ConstraintViolationException
-     *             if rollout or group parameters are invalid
+     *             if rollout or group parameters are invalid.
      */
     @PreAuthorize(SpringEvalExpressions.HAS_AUTH_ROLLOUT_MANAGEMENT_WRITE)
     Rollout createRollout(@NotNull RolloutCreate create, int amountGroup, @NotNull RolloutGroupConditions conditions);
@@ -174,6 +174,9 @@ public interface RolloutManagement {
      * @return the validation information
      * @throws RolloutIllegalStateException
      *             thrown when no targets are targeted by the rollout
+     * @throws ConstraintViolationException
+     *             if fields are not filled as specified. Check
+     *             {@link RolloutGroupCreate} for field constraints.
      */
     @PreAuthorize(SpringEvalExpressions.HAS_AUTH_ROLLOUT_MANAGEMENT_READ_AND_TARGET_READ)
     ListenableFuture<RolloutGroupsValidation> validateTargetsInGroups(List<RolloutGroupCreate> groups,

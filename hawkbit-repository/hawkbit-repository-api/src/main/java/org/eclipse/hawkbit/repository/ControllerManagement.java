@@ -13,11 +13,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import javax.validation.ConstraintViolationException;
 import javax.validation.constraints.NotNull;
 
 import org.eclipse.hawkbit.im.authentication.SpPermission.SpringEvalExpressions;
 import org.eclipse.hawkbit.repository.builder.ActionStatusCreate;
-import org.eclipse.hawkbit.repository.event.remote.DownloadProgressEvent;
 import org.eclipse.hawkbit.repository.exception.EntityAlreadyExistsException;
 import org.eclipse.hawkbit.repository.exception.EntityNotFoundException;
 import org.eclipse.hawkbit.repository.exception.QuotaExceededException;
@@ -56,26 +56,13 @@ public interface ControllerManagement {
      *             per entry are inserted
      * @throws EntityNotFoundException
      *             if given action does not exist
+     * @throws ConstraintViolationException
+     *             if fields are not filled as specified. Check
+     *             {@link ActionStatusCreate} for field constraints.
      * 
      */
     @PreAuthorize(SpringEvalExpressions.IS_CONTROLLER)
     Action addCancelActionStatus(@NotNull ActionStatusCreate create);
-
-    /**
-     * Sends the download progress and notifies the event publisher with a
-     * {@link DownloadProgressEvent}.
-     * 
-     * @param statusId
-     *            the ID of the {@link ActionStatus}
-     * @param requestedBytes
-     *            requested bytes of the request
-     * @param shippedBytesSinceLast
-     *            since the last report
-     * @param shippedBytesOverall
-     *            for the {@link ActionStatus}
-     */
-    @PreAuthorize(SpringEvalExpressions.IS_CONTROLLER)
-    void downloadProgress(Long statusId, Long requestedBytes, Long shippedBytesSinceLast, Long shippedBytesOverall);
 
     /**
      * Simple addition of a new {@link ActionStatus} entry to the {@link Action}
@@ -91,6 +78,9 @@ public interface ControllerManagement {
      *             per entry are inserted
      * @throws EntityNotFoundException
      *             if given action does not exist
+     * @throws ConstraintViolationException
+     *             if fields are not filled as specified. Check
+     *             {@link ActionStatusCreate} for field constraints.
      */
     @PreAuthorize(SpringEvalExpressions.IS_CONTROLLER)
     ActionStatus addInformationalActionStatus(@NotNull ActionStatusCreate create);
@@ -108,9 +98,11 @@ public interface ControllerManagement {
      * @throws QuotaExceededException
      *             if more than the allowed number of status entries or messages
      *             per entry are inserted
-     * 
      * @throws EntityNotFoundException
      *             if action status not exist
+     * @throws ConstraintViolationException
+     *             if fields are not filled as specified. Check
+     *             {@link ActionStatusCreate} for field constraints.
      */
     @PreAuthorize(SpringEvalExpressions.IS_CONTROLLER)
     Action addUpdateActionStatus(@NotNull ActionStatusCreate create);
